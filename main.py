@@ -17,6 +17,9 @@ class ForwardPlugin(Star):
         if "forward_target" not in self.config:
             self.config["forward_target"] = None
 
+        # 手动注册事件监听器，确保 forward_message 作为插件实例的方法被调用
+        self.context.add_event_listener(self.forward_message)
+
     @filter.command("enable_forward")
     async def enable_forward(self, event: AstrMessageEvent):
         """
@@ -52,7 +55,7 @@ class ForwardPlugin(Star):
             yield event.plain_result(f"转发功能已启用，目标用户ID：{self.config.get('forward_target')}")
         else:
             yield event.plain_result("转发功能当前未启用。")
-
+    
     @event_message_type(EventMessageType.ALL)
     async def forward_message(self, event: AstrMessageEvent):
         """
@@ -80,3 +83,4 @@ class ForwardPlugin(Star):
 
         forwarded_text = f"[{timestamp}] {source_info}\n消息内容：{event.message_str}"
         await self.context.send_message(forward_target, [Plain(forwarded_text)])
+
