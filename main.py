@@ -3,6 +3,8 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Plain
 
+from astrbot.api.all import *
+
 @register("forward_plugin", "w33d", "转发消息插件：收到消息自动转发给指定用户", "1.0.0", "https://github.com/Last-emo-boy/forward-bot")
 class ForwardPlugin(Star):
     def __init__(self, context: Context, config: dict):
