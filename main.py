@@ -23,7 +23,7 @@ class ForwardPlugin(Star):
         """
         user_id = event.get_sender_id()
         self.config["forward_target"] = user_id
-        # 持久化保存配置（保存方式依据具体实现）
+        # 持久化保存配置（确保配置对象支持 save_config 方法）
         self.config.save_config()
         yield event.plain_result(f"转发功能已启用，所有消息将转发给你，{event.get_sender_name()}。")
 
@@ -51,12 +51,11 @@ class ForwardPlugin(Star):
         else:
             yield event.plain_result("转发功能当前未启用。")
 
-    @filter.on_all_message()
+    @event_message_type(EventMessageType.ALL)
     async def forward_message(self, event: AstrMessageEvent):
         """
-        监听所有收到的消息，如果转发功能已启用，则构造带有时间戳和来源信息的消息，
-        并将其发送给配置中的目标用户。
-        为避免循环转发，如果消息来自转发目标，则不再转发。
+        监听所有收到的消息。如果转发功能已启用，则构造带有时间戳和来源信息的消息，
+        并将其发送给配置中的目标用户。为避免循环转发，如果消息来自转发目标，则不转发。
         """
         forward_target = self.config.get("forward_target")
         if not forward_target:
@@ -70,7 +69,6 @@ class ForwardPlugin(Star):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 判断消息来源：若有 group_id 则认为是群聊消息，否则为私聊
         if event.message_obj.group_id:
-            # 这里暂时以 group_id 作为群聊标识；如果有接口获取群名称，可做相应替换
             group_info = f"群聊ID：{event.message_obj.group_id}"
             sender_info = f"发送者：{event.get_sender_name()}"
             source_info = f"{group_info}，{sender_info}"
@@ -79,6 +77,4 @@ class ForwardPlugin(Star):
             source_info = f"私聊，{sender_info}"
 
         forwarded_text = f"[{timestamp}] {source_info}\n消息内容：{event.message_str}"
-
-        # 通过 context 的 send_message 方法，将构造好的消息链发送给目标用户
         await self.context.send_message(forward_target, [Plain(forwarded_text)])
