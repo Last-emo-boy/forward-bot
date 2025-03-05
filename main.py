@@ -1,21 +1,84 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+import datetime
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+from astrbot.api.message_components import Plain
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
-class MyPlugin(Star):
-    def __init__(self, context: Context):
+@register("forward_plugin", "w33d", "转发消息插件：收到消息自动转发给指定用户", "1.0.0", "https://github.com/Last-emo-boy/forward-bot")
+class ForwardPlugin(Star):
+    def __init__(self, context: Context, config: dict):
+        """
+        初始化插件，config 会由 AstrBot 根据 _conf_schema.json 自动加载。
+        如果 config 中没有 forward_target 键，则初始化为空。
+        """
         super().__init__(context)
-    
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        '''这是一个 hello world 指令''' # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+        self.config = config
+        if "forward_target" not in self.config:
+            self.config["forward_target"] = None
 
-    async def terminate(self):
-        '''可选择实现 terminate 函数，当插件被卸载/停用时会调用。'''
+    @filter.command("enable_forward")
+    async def enable_forward(self, event: AstrMessageEvent):
+        """
+        启用转发功能：使用该命令后，机器人将把所有收到的消息转发给你。
+        命令示例：/enable_forward
+        """
+        user_id = event.get_sender_id()
+        self.config["forward_target"] = user_id
+        # 持久化保存配置（保存方式依据具体实现）
+        self.config.save_config()
+        yield event.plain_result(f"转发功能已启用，所有消息将转发给你，{event.get_sender_name()}。")
+
+    @filter.command("disable_forward")
+    async def disable_forward(self, event: AstrMessageEvent):
+        """
+        禁用转发功能：只有当前转发目标才能使用该命令取消转发。
+        命令示例：/disable_forward
+        """
+        if self.config.get("forward_target") == event.get_sender_id():
+            self.config["forward_target"] = None
+            self.config.save_config()
+            yield event.plain_result("转发功能已禁用。")
+        else:
+            yield event.plain_result("你不是当前的转发目标，无法禁用转发。")
+
+    @filter.command("status_forward")
+    async def status_forward(self, event: AstrMessageEvent):
+        """
+        查询转发状态：显示当前是否已启用转发以及目标用户的 ID。
+        命令示例：/status_forward
+        """
+        if self.config.get("forward_target"):
+            yield event.plain_result(f"转发功能已启用，目标用户ID：{self.config.get('forward_target')}")
+        else:
+            yield event.plain_result("转发功能当前未启用。")
+
+    @filter.on_all_message()
+    async def forward_message(self, event: AstrMessageEvent):
+        """
+        监听所有收到的消息，如果转发功能已启用，则构造带有时间戳和来源信息的消息，
+        并将其发送给配置中的目标用户。
+        为避免循环转发，如果消息来自转发目标，则不再转发。
+        """
+        forward_target = self.config.get("forward_target")
+        if not forward_target:
+            return  # 未启用转发
+
+        # 避免转发目标自己的消息
+        if event.get_sender_id() == forward_target:
+            return
+
+        # 获取当前时间戳
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 判断消息来源：若有 group_id 则认为是群聊消息，否则为私聊
+        if event.message_obj.group_id:
+            # 这里暂时以 group_id 作为群聊标识；如果有接口获取群名称，可做相应替换
+            group_info = f"群聊ID：{event.message_obj.group_id}"
+            sender_info = f"发送者：{event.get_sender_name()}"
+            source_info = f"{group_info}，{sender_info}"
+        else:
+            sender_info = f"发送者：{event.get_sender_name()}"
+            source_info = f"私聊，{sender_info}"
+
+        forwarded_text = f"[{timestamp}] {source_info}\n消息内容：{event.message_str}"
+
+        # 通过 context 的 send_message 方法，将构造好的消息链发送给目标用户
+        await self.context.send_message(forward_target, [Plain(forwarded_text)])
